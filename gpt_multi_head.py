@@ -11,6 +11,7 @@ learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embd = 32
+n_head = 4
 
 
 # ------------
@@ -93,14 +94,45 @@ class Head(nn.Module):
         return out
 
 
+class MultiHeadAttention(nn.Module):
+    """ multiple heads of self-attention in parallel """
+
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        ## YOUR CODE HERE
+        ## list of num_heads modules of type Head
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        ###
+        
+    def forward(self, x):
+        ## YOUR CODE HERE
+        ## apply each head in self.heads to x and concat the results 
+        out = torch.cat([h(x) for h in self.heads], dim=-1)
+
+        return out
+    
+class FeedForward(nn.Module):
+    """ a simple MLP with RELU """
+
+    def __init__(self, n_embd):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, n_embd),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+    
 class BigramLanguageModel(nn.Module):
 
     def __init__(self):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.sa_head = Head(n_embd)
+        self.sa_head = MultiHeadAttention(num_heads = n_head, head_size = n_embd // n_head)
         self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.feed_forward = FeedForward(n_embd)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
@@ -110,6 +142,7 @@ class BigramLanguageModel(nn.Module):
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
         x = tok_emb + pos_emb # (B,T,C)
         x = self.sa_head(x) # (B,T,C)
+        x = self.feed_forward(x) # (B,T,C)
         logits = self.lm_head(x) # (B,T,vocab_size)
 
         if targets is None:
@@ -138,8 +171,8 @@ class BigramLanguageModel(nn.Module):
             # append sampled index to the running sequence
             idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
         return idx
-    
 
+    
 
 model = BigramLanguageModel()
 m = model.to(device)
